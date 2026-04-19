@@ -1,18 +1,57 @@
-import { dialog, app } from 'electron'
+import { dialog, app, safeStorage } from 'electron'
 import path from 'path'
 import { mkdirSync, existsSync } from 'fs'
+import { randomUUID } from 'crypto'
 import * as db from '../db/queries.js'
 import { detectFfmpeg, probeFile, convert, installFfmpegLinux } from './ffmpeg.js'
 import {
   detectPython,
-  detectActivator,
-  ensureActivator,
-  extractActivationBytes
+  checkAudibleLib,
+  installAudibleCli,
+  getAudibleConfigDir,
+  startAuthProcess
 } from './audible-activator.js'
 import { buildFileTree } from './file-browser.js'
 
-// Track active conversion processes for cancellation
+// ── Credential encryption ──────────────────────────────────────────────────
+// safeStorage uses OS keychain (libsecret/Keychain/DPAPI) when available.
+
+function encryptCredentials(creds) {
+  const json = JSON.stringify(creds)
+  if (safeStorage.isEncryptionAvailable()) {
+    const buf = safeStorage.encryptString(json)
+    return JSON.stringify({ encrypted: true, data: buf.toString('base64') })
+  }
+  return JSON.stringify({ encrypted: false, data: json })
+}
+
+function decryptCredentials(stored) {
+  try {
+    const wrapper = JSON.parse(stored)
+    if (wrapper.encrypted) {
+      return JSON.parse(safeStorage.decryptString(Buffer.from(wrapper.data, 'base64')))
+    }
+    return JSON.parse(wrapper.data)
+  } catch {
+    try { return JSON.parse(stored) } catch { return {} }
+  }
+}
+
+// ── Ensure audible library ─────────────────────────────────────────────────
+
+async function ensureAudibleLib(pythonCmd, onStatus) {
+  if (checkAudibleLib(pythonCmd)) return
+  onStatus?.('Installing audible-cli Python library…')
+  await installAudibleCli(pythonCmd)
+  if (!checkAudibleLib(pythonCmd)) {
+    throw new Error('audible-cli install failed. Run: pip3 install audible-cli --break-system-packages')
+  }
+}
+
+// ── Active sessions ────────────────────────────────────────────────────────
+
 const activeConversions = new Map()
+const authSessions = new Map()   // sessionId → { session, email, label }
 
 export function setupIpc(ipcMain, getWindow) {
   // ── App info ──────────────────────────────────────────────────────────────
@@ -20,7 +59,8 @@ export function setupIpc(ipcMain, getWindow) {
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     platform: process.platform,
-    userData: app.getPath('userData')
+    userData: app.getPath('userData'),
+    encryptionAvailable: safeStorage.isEncryptionAvailable()
   }))
 
   // ── FFmpeg ────────────────────────────────────────────────────────────────
@@ -47,48 +87,46 @@ export function setupIpc(ipcMain, getWindow) {
 
   ipcMain.handle('convert:start', async (event, opts) => {
     const win = getWindow()
-    const {
-      inputPath,
-      format = 'm4b',
-      quality = '128k',
-      outputFolder,
-      splitChapters = false,
-      embedCover = true,
-      embedChapters = true,
-      accountId
-    } = opts
+    const { inputPath, format = 'm4b', quality = '128k', outputFolder, accountId } = opts
 
     const ffPath = detectFfmpeg(db.getSetting('ffmpegPath'))
     if (!ffPath) throw new Error('ffmpeg not found. Please install ffmpeg first.')
 
-    // Resolve activation bytes
     let activationBytes = null
-    const account = accountId ? db.getAccounts().find((a) => a.id === accountId) : db.getActiveAccount()
+    const account = accountId
+      ? db.getAccounts().find((a) => a.id === accountId)
+      : db.getActiveAccount()
 
     if (account) {
       const stored = db.findKey(account.id)
       if (stored) {
         activationBytes = stored.hex_key
       } else {
-        // run audible-activator
-        try {
-          const credentials = JSON.parse(account.credentials || '{}')
-          const activatorPath = detectActivator(db.getSetting('activatorPath'))
-          const resolved = activatorPath || (await ensureActivator((msg) => {
-            win?.webContents.send('convert:status', { msg })
-          }))
-          activationBytes = await extractActivationBytes({
-            activatorPath: resolved,
-            pythonPath: db.getSetting('pythonPath'),
-            email: credentials.email,
-            password: credentials.password,
-            onStatus: (msg) => win?.webContents.send('convert:status', { msg })
+        const creds = decryptCredentials(account.credentials)
+        const python = db.getSetting('pythonPath') || detectPython()
+        if (!python) throw new Error('Python 3 not found')
+        await ensureAudibleLib(python, (msg) => win?.webContents.send('convert:status', { msg }))
+
+        activationBytes = await new Promise((resolve, reject) => {
+          startAuthProcess({
+            pythonPath: python,
+            email: creds.email,
+            password: creds.password,
+            configDir: getAudibleConfigDir(),
+            onEvent: (ev) => {
+              if (ev.type === 'status') win?.webContents.send('convert:status', { msg: ev.message })
+              if (ev.type === 'success') resolve(ev.activation_bytes)
+              if (ev.type === 'error') reject(new Error(ev.message))
+              if (ev.type === 'prompt') reject(new Error('Account requires re-authentication — please reconnect it in Settings'))
+            }
           })
-          const filename = path.basename(inputPath)
-          db.addKey({ hexKey: activationBytes, bookTitle: filename, accountId: account.id })
-        } catch (err) {
-          throw new Error(`Could not get activation bytes: ${err.message}`)
-        }
+        })
+
+        db.addKey({
+          hexKey: activationBytes,
+          bookTitle: path.basename(inputPath),
+          accountId: account.id
+        })
       }
     }
 
@@ -107,12 +145,10 @@ export function setupIpc(ipcMain, getWindow) {
       format,
       quality,
       activationBytes,
-      onProgress: (prog) => {
-        win?.webContents.send('convert:progress', { convId, ...prog })
-      }
+      onProgress: (prog) => win?.webContents.send('convert:progress', { convId, ...prog })
     })
 
-    activeConversions.set(convId, { kill: () => { killed = true; promise.kill?.() } })
+    activeConversions.set(convId, { kill: () => { killed = true } })
 
     try {
       await promise
@@ -147,6 +183,63 @@ export function setupIpc(ipcMain, getWindow) {
     if (conv) { conv.kill(); activeConversions.delete(convId) }
   })
 
+  // ── Auth (multi-step Audible login) ───────────────────────────────────────
+
+  ipcMain.handle('auth:start', async (_, { email, password, label }) => {
+    const win = getWindow()
+    const python = db.getSetting('pythonPath') || detectPython()
+    if (!python) throw new Error('Python 3 not found')
+
+    await ensureAudibleLib(python, (msg) => {
+      win?.webContents.send('auth:event', { sessionId: null, type: 'status', message: msg })
+    })
+
+    const sessionId = randomUUID()
+
+    const session = startAuthProcess({
+      pythonPath: python,
+      email,
+      password,
+      configDir: getAudibleConfigDir(),
+      onEvent: (ev) => {
+        if (ev.type === 'success') {
+          // Save account + key before forwarding success
+          try {
+            const encCreds = encryptCredentials({ email, password })
+            db.addAccount({ email, label: label || email, credentials: encCreds })
+            const account = db.getActiveAccount()
+            db.addKey({ hexKey: ev.activation_bytes, label: label || email, accountId: account.id })
+            win?.webContents.send('auth:event', {
+              sessionId, ...ev, account
+            })
+          } catch (dbErr) {
+            win?.webContents.send('auth:event', {
+              sessionId, type: 'error', message: `Auth succeeded but saving failed: ${dbErr.message}`
+            })
+          }
+          authSessions.delete(sessionId)
+        } else {
+          win?.webContents.send('auth:event', { sessionId, ...ev })
+          if (ev.type === 'error') authSessions.delete(sessionId)
+        }
+      }
+    })
+
+    authSessions.set(sessionId, { session, email, label })
+    return { sessionId }
+  })
+
+  ipcMain.handle('auth:respond', (_, { sessionId, code }) => {
+    const entry = authSessions.get(sessionId)
+    if (!entry) throw new Error('No active auth session')
+    entry.session.respond(code)
+  })
+
+  ipcMain.handle('auth:cancel', (_, sessionId) => {
+    const entry = authSessions.get(sessionId)
+    if (entry) { entry.session.kill(); authSessions.delete(sessionId) }
+  })
+
   // ── File browser ──────────────────────────────────────────────────────────
 
   ipcMain.handle('files:tree', (_, rootDir) => {
@@ -155,16 +248,12 @@ export function setupIpc(ipcMain, getWindow) {
   })
 
   ipcMain.handle('files:pick-folder', async () => {
-    const win = getWindow()
-    const result = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory']
-    })
+    const result = await dialog.showOpenDialog(getWindow(), { properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
   })
 
   ipcMain.handle('files:pick-file', async () => {
-    const win = getWindow()
-    const result = await dialog.showOpenDialog(win, {
+    const result = await dialog.showOpenDialog(getWindow(), {
       filters: [{ name: 'Audible AAX', extensions: ['aax'] }],
       properties: ['openFile']
     })
@@ -172,8 +261,7 @@ export function setupIpc(ipcMain, getWindow) {
   })
 
   ipcMain.handle('files:pick-output', async () => {
-    const win = getWindow()
-    const result = await dialog.showOpenDialog(win, {
+    const result = await dialog.showOpenDialog(getWindow(), {
       properties: ['openDirectory', 'createDirectory'],
       title: 'Select Output Folder'
     })
@@ -184,33 +272,8 @@ export function setupIpc(ipcMain, getWindow) {
 
   ipcMain.handle('accounts:list', () => db.getAccounts())
   ipcMain.handle('accounts:active', () => db.getActiveAccount())
-  ipcMain.handle('accounts:add', (_, payload) => db.addAccount(payload))
   ipcMain.handle('accounts:switch', (_, id) => { db.switchAccount(id); return true })
   ipcMain.handle('accounts:remove', (_, id) => { db.removeAccount(id); return true })
-
-  ipcMain.handle('accounts:connect', async (event, { email, password, label }) => {
-    const win = getWindow()
-    // Store credentials and try to extract activation bytes immediately
-    db.addAccount({ email, label: label || email, credentials: { email, password } })
-    const account = db.getActiveAccount()
-    try {
-      const activatorPath = detectActivator(db.getSetting('activatorPath'))
-      const resolved = activatorPath || (await ensureActivator((msg) => {
-        win?.webContents.send('accounts:status', { msg })
-      }))
-      const bytes = await extractActivationBytes({
-        activatorPath: resolved,
-        pythonPath: db.getSetting('pythonPath'),
-        email,
-        password,
-        onStatus: (msg) => win?.webContents.send('accounts:status', { msg })
-      })
-      db.addKey({ hexKey: bytes, label: email, accountId: account.id })
-      return { success: true, account, activationBytes: bytes }
-    } catch (err) {
-      return { success: true, account, warning: err.message }
-    }
-  })
 
   // ── Keys ──────────────────────────────────────────────────────────────────
 
@@ -227,9 +290,12 @@ export function setupIpc(ipcMain, getWindow) {
   ipcMain.handle('settings:get-all', () => db.getAllSettings())
   ipcMain.handle('settings:set', (_, key, value) => { db.setSetting(key, value); return true })
 
-  ipcMain.handle('settings:detect-tools', () => ({
-    ffmpeg: detectFfmpeg(db.getSetting('ffmpegPath')),
-    python: detectPython(),
-    activator: detectActivator(db.getSetting('activatorPath'))
-  }))
+  ipcMain.handle('settings:detect-tools', () => {
+    const py = detectPython()
+    return {
+      ffmpeg: detectFfmpeg(db.getSetting('ffmpegPath')),
+      python: py,
+      audibleLib: py ? checkAudibleLib(py) : false
+    }
+  })
 }

@@ -30,14 +30,17 @@ contextBridge.exposeInMainWorld('api', {
   filesPickFile: () => invoke('files:pick-file'),
   filesPickOutput: () => invoke('files:pick-output'),
 
+  // Auth (multi-step Audible login)
+  authStart: (payload) => invoke('auth:start', payload),
+  authRespond: (sessionId, code) => invoke('auth:respond', { sessionId, code }),
+  authCancel: (sessionId) => invoke('auth:cancel', sessionId),
+  onAuthEvent: (cb) => on('auth:event', cb),
+
   // Accounts
   accountsList: () => invoke('accounts:list'),
   accountsActive: () => invoke('accounts:active'),
-  accountsAdd: (payload) => invoke('accounts:add', payload),
-  accountsConnect: (payload) => invoke('accounts:connect', payload),
   accountsSwitch: (id) => invoke('accounts:switch', id),
   accountsRemove: (id) => invoke('accounts:remove', id),
-  onAccountsStatus: (cb) => on('accounts:status', cb),
 
   // Keys
   keysList: () => invoke('keys:list'),

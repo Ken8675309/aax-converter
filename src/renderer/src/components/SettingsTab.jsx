@@ -143,13 +143,16 @@ export default function SettingsTab({ accounts, activeAccount, onRefresh }) {
             onChange={(v) => set('ffmpegPath', v)}
             saved={saved.ffmpegPath}
           />
-          <ToolPathRow
-            label="audible-activator.py"
-            detected={tools.activator}
-            value={settings.activatorPath || ''}
-            onChange={(v) => set('activatorPath', v)}
-            saved={saved.activatorPath}
-          />
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <label className="text-xs text-slate-400">audible (Python library)</label>
+              {tools.audibleLib ? (
+                <span className="text-xs text-green-400">✓ Installed</span>
+              ) : (
+                <span className="text-xs text-amber-400">Not installed — run: pip3 install audible --break-system-packages</span>
+              )}
+            </div>
+          </div>
           <ToolPathRow
             label="python3"
             detected={tools.python}
