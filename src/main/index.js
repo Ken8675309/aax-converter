@@ -12,7 +12,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'AAX Converter',
+    title: 'The AAXorcist',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,

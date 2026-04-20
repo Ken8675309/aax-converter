@@ -1,4 +1,4 @@
-# AAX Converter
+# The AAXorcist
 
 Convert Audible `.aax` audiobooks to open formats — M4B, MP3, FLAC, OGG, WAV, OPUS, AAC.
 

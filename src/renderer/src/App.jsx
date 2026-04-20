@@ -33,8 +33,7 @@ export default function App() {
       {/* Title bar */}
       <header className="drag-region flex items-center justify-between px-4 py-2 bg-slate-950 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2 no-drag">
-          <span className="text-brand-500 font-bold text-sm tracking-wide">AAX</span>
-          <span className="text-slate-400 text-sm">Converter</span>
+          <span className="text-brand-500 font-bold text-sm tracking-wide">👻 The AAXorcist</span>
         </div>
         <nav className="flex gap-1 no-drag">
           {TABS.map((t) => (
