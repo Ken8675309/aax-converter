@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 const FORMATS = ['m4b', 'mp3', 'm4a', 'flac', 'ogg', 'wav', 'opus', 'aac']
 const QUALITIES = [
@@ -7,6 +7,15 @@ const QUALITIES = [
   { value: '64k', label: '64 kbps' },
   { value: '32k', label: '32 kbps' }
 ]
+
+const STEP_LABELS = {
+  checksum: { active: 'Extracting checksum…', done: 'Checksum extracted' },
+  activation: {
+    active: 'Looking up activation bytes…',
+    done: (fromCache) => fromCache ? 'Activation bytes found (cached)' : 'Activation bytes found'
+  },
+  converting: { active: 'Purging…' }
+}
 
 function formatDuration(sec) {
   if (!sec) return '—'
@@ -22,34 +31,22 @@ function formatSize(bytes) {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1e6).toFixed(0)} MB`
 }
 
-const STEP_LABELS = {
-  checksum: { active: 'Extracting checksum…', done: 'Checksum extracted' },
-  activation: {
-    active: 'Looking up activation bytes…',
-    done: (fromCache) => fromCache ? 'Activation bytes found (cached)' : 'Activation bytes found'
-  },
-  converting: { active: 'Converting…' }
-}
-
 export default function ConvertTab({ selectedFile }) {
   const [format, setFormat] = useState('m4b')
   const [quality, setQuality] = useState('128k')
   const [outputFolder, setOutputFolder] = useState('')
   const [probe, setProbe] = useState(null)
   const [probeError, setProbeError] = useState('')
-
   const [converting, setConverting] = useState(false)
-  const [completedSteps, setCompletedSteps] = useState([])  // { label }[]
+  const [completedSteps, setCompletedSteps] = useState([])
   const [activeStepLabel, setActiveStepLabel] = useState('')
-  const [progress, setProgress] = useState(null)            // { pct, currentTime, totalDuration }
-
-  const [done, setDone] = useState(null)    // { outputPath, fileName, format }
+  const [progress, setProgress] = useState(null)
+  const [done, setDone] = useState(null)
   const [error, setError] = useState('')
   const [needsManualBytes, setNeedsManualBytes] = useState(false)
   const [manualBytes, setManualBytes] = useState('')
   const [checksum, setChecksum] = useState('')
 
-  // Load defaults from settings once
   useEffect(() => {
     window.api.settingsGetAll().then((s) => {
       if (s.defaultFormat) setFormat(s.defaultFormat)
@@ -58,32 +55,20 @@ export default function ConvertTab({ selectedFile }) {
     })
   }, [])
 
-  // Probe file on selection
   useEffect(() => {
     if (!selectedFile) { setProbe(null); return }
-    setProbeError('')
-    setDone(null)
-    setError('')
-    setProgress(null)
-    setNeedsManualBytes(false)
-    setManualBytes('')
-    setChecksum('')
-    setCompletedSteps([])
-    setActiveStepLabel('')
+    setProbeError(''); setDone(null); setError(''); setProgress(null)
+    setNeedsManualBytes(false); setManualBytes(''); setChecksum('')
+    setCompletedSteps([]); setActiveStepLabel('')
     window.api.ffmpegProbe(selectedFile).then(setProbe).catch((e) => setProbeError(e.message))
   }, [selectedFile])
 
-  // Listen to conversion events — no convId filter (one conversion at a time)
   useEffect(() => {
-    const offProgress = window.api.onConvertProgress((data) => {
-      setProgress(data)
-    })
-
+    const offProgress = window.api.onConvertProgress((data) => setProgress(data))
     const offStep = window.api.onConvertStep((data) => {
       const { step, state, fromCache } = data
       if (state === 'active') {
-        const label = STEP_LABELS[step]?.active || step
-        setActiveStepLabel(label)
+        setActiveStepLabel(STEP_LABELS[step]?.active || step)
       } else if (state === 'done') {
         const labelFn = STEP_LABELS[step]?.done
         const label = typeof labelFn === 'function' ? labelFn(fromCache) : (labelFn || step)
@@ -91,7 +76,6 @@ export default function ConvertTab({ selectedFile }) {
         setActiveStepLabel('')
       }
     })
-
     return () => { offProgress(); offStep() }
   }, [])
 
@@ -101,43 +85,27 @@ export default function ConvertTab({ selectedFile }) {
   }
 
   const resetForm = () => {
-    setDone(null)
-    setError('')
-    setProgress(null)
-    setCompletedSteps([])
-    setActiveStepLabel('')
-    setNeedsManualBytes(false)
-    setManualBytes('')
-    setChecksum('')
+    setDone(null); setError(''); setProgress(null)
+    setCompletedSteps([]); setActiveStepLabel('')
+    setNeedsManualBytes(false); setManualBytes(''); setChecksum('')
   }
 
   const startConvert = useCallback(async (manualActivationBytes) => {
     if (!selectedFile) return
-    setConverting(true)
-    setError('')
-    setDone(null)
-    setProgress(null)
-    setCompletedSteps([])
-    setActiveStepLabel('')
-    setNeedsManualBytes(false)
-
+    setConverting(true); setError(''); setDone(null); setProgress(null)
+    setCompletedSteps([]); setActiveStepLabel(''); setNeedsManualBytes(false)
     try {
       const result = await window.api.convertStart({
-        inputPath: selectedFile,
-        format,
-        quality,
+        inputPath: selectedFile, format, quality,
         outputFolder: outputFolder || undefined,
         manualActivationBytes: manualActivationBytes || undefined
       })
-      setConverting(false)
-      setActiveStepLabel('')
+      setConverting(false); setActiveStepLabel('')
       setDone({ outputPath: result.outputPath, fileName: result.fileName, format: result.format })
     } catch (err) {
-      setConverting(false)
-      setActiveStepLabel('')
+      setConverting(false); setActiveStepLabel('')
       if (err.message?.includes('rainbow tables')) {
-        setError(err.message)
-        setNeedsManualBytes(true)
+        setError(err.message); setNeedsManualBytes(true)
         window.api.activationChecksum(selectedFile).then(setChecksum).catch(() => {})
       } else {
         setError(err.message)
@@ -159,230 +127,214 @@ export default function ConvertTab({ selectedFile }) {
   const isConverting = converting || (progress && !done)
 
   return (
-    <div className="p-6 max-w-2xl">
-      <h2 className="text-lg font-semibold mb-4 text-slate-200">Convert</h2>
+    <div style={{ padding: 16, maxWidth: 680 }}>
 
-      {/* File info */}
-      <div className="bg-slate-800 rounded-lg p-4 mb-4 border border-slate-700">
+      {/* The Possessed */}
+      <div className="ex-panel" style={{ marginTop: 6 }}>
+        <div className="panel-label">The Possessed</div>
         {selectedFile ? (
-          <div>
-            <p className="text-sm font-medium text-slate-200 truncate" title={selectedFile}>
-              {selectedFile.split('/').pop()}
-            </p>
-            <p className="text-xs text-slate-500 truncate mt-0.5" title={selectedFile}>
-              {selectedFile}
-            </p>
-            {probe && (
-              <div className="flex gap-4 mt-2 text-xs text-slate-400">
-                <span>Duration: {formatDuration(duration)}</span>
-                <span>Size: {formatSize(fileSize)}</span>
-                {chapterCount > 0 && <span>Chapters: {chapterCount}</span>}
+          <div className="selected-file-display">
+            <span style={{ fontSize: 26, flexShrink: 0 }}>📕</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: 'var(--ex-gold)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedFile.split('/').pop()}
               </div>
-            )}
-            {probeError && <p className="text-xs text-amber-400 mt-1">{probeError}</p>}
+              <div style={{ fontSize: 10, color: 'var(--ex-muted)' }}>
+                {probe && (
+                  <>
+                    {formatDuration(duration)}
+                    {fileSize > 0 && <> &nbsp;·&nbsp; {formatSize(fileSize)}</>}
+                    {chapterCount > 0 && <> &nbsp;·&nbsp; {chapterCount} chapters</>}
+                  </>
+                )}
+                {probeError && <span style={{ color: 'var(--ex-gold)' }}>{probeError}</span>}
+                {!probe && !probeError && <span>Probing…</span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--ex-red2)', fontStyle: 'italic', textAlign: 'right', flexShrink: 0 }}>
+              awaiting<br />exorcism
+            </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-500">Select a .aax file from the sidebar</p>
+          <p style={{ fontSize: 11, color: 'var(--ex-muted)', fontStyle: 'italic' }}>
+            Select a .aax file from the sidebar to begin
+          </p>
         )}
       </div>
 
-      {/* Format + quality — hide during/after conversion */}
+      {/* Format + Settings — hide during/after conversion */}
       {!isConverting && !done && (
-        <>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">Output Format</label>
-              <select
-                value={format}
-                onChange={(e) => setFormat(e.target.value)}
-                className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm w-full focus:outline-none focus:border-brand-500"
-              >
-                {FORMATS.map((f) => <option key={f} value={f}>{f.toUpperCase()}</option>)}
-              </select>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, marginTop: 0 }}>
+          <div className="ex-panel">
+            <div className="panel-label">Choose Your Vessel</div>
+            <div className="format-grid">
+              {FORMATS.map((f) => (
+                <button
+                  key={f}
+                  className={`format-chip${format === f ? ' selected' : ''}`}
+                  onClick={() => setFormat(f)}
+                >
+                  {f.toUpperCase()}
+                </button>
+              ))}
             </div>
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">Quality</label>
+          </div>
+
+          <div className="ex-panel">
+            <div className="panel-label">The Ritual</div>
+            <div className="tog-row">
+              <span>Quality</span>
               <select
+                className="ex-select"
+                style={{ width: 'auto', padding: '2px 6px', fontSize: 11 }}
                 value={quality}
                 onChange={(e) => setQuality(e.target.value)}
-                className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm w-full focus:outline-none focus:border-brand-500"
               >
                 {QUALITIES.map((q) => <option key={q.value} value={q.value}>{q.label}</option>)}
               </select>
             </div>
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm text-slate-400 mb-1">Output Folder</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                readOnly
-                value={outputFolder}
-                placeholder="Default: input_folder/converted/"
-                className="flex-1 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-300 cursor-default focus:outline-none"
-              />
-              <button onClick={pickOutput} className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm text-slate-300">
-                Browse
-              </button>
+            <div style={{ marginTop: 8 }}>
+              <div className="panel-label">Output Sanctuary</div>
+              <div className="output-row">
+                <div className="output-path" title={outputFolder}>
+                  {outputFolder || 'input_folder/converted/'}
+                </div>
+                <button className="smol-btn" onClick={pickOutput}>change</button>
+              </div>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Pipeline steps + progress */}
       {(isConverting || completedSteps.length > 0) && !done && (
-        <div className="mb-4 bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-2">
+        <div className="ex-panel">
+          <div className="panel-label">Exorcism Progress</div>
+
           {completedSteps.map((s, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm text-slate-400">
-              <span className="text-green-400 font-bold shrink-0">✓</span>
-              <span>{s.label}</span>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ex-green2)', padding: '3px 0' }}>
+              <span>✓</span><span>{s.label}</span>
             </div>
           ))}
 
           {activeStepLabel && !progress && (
-            <div className="flex items-center gap-2 text-sm text-slate-200">
-              <Spinner className="shrink-0 text-brand-400" />
-              <span>{activeStepLabel}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ex-text)', padding: '3px 0' }}>
+              <Spinner /><span>{activeStepLabel}</span>
             </div>
           )}
 
           {progress !== null && (
-            <div>
-              <div className="flex items-center gap-2 text-sm text-slate-200 mb-2">
-                <Spinner className="shrink-0 text-brand-400" />
-                <span>
-                  Converting…
-                  {chapterCount > 0 && progress.currentChapter
-                    ? ` chapter ${progress.currentChapter} of ${chapterCount}`
-                    : ''}
-                </span>
-                <span className="ml-auto text-slate-400 tabular-nums">{progress.pct}%</span>
+            <div style={{ marginTop: 6 }}>
+              <div className="ex-progress-bg">
+                <div className="ex-progress-fill" style={{ width: `${progress.pct}%` }} />
               </div>
-              <div className="w-full bg-slate-700 rounded-full h-2">
-                <div
-                  className="bg-brand-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${progress.pct}%` }}
-                />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--ex-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                <span>
+                  {chapterCount > 0 && progress.currentChapter
+                    ? `Purging chapter ${progress.currentChapter} of ${chapterCount}…`
+                    : 'Purging…'}
+                </span>
+                <span>{progress.pct}%</span>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Success card */}
+      {/* Success */}
       {done && (
-        <div className="mb-4 bg-green-950/40 border border-green-700/50 rounded-lg p-4">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
-              <svg className="w-5 h-5 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-green-300">{done.fileName}</p>
-              <p className="text-xs text-slate-500 truncate mt-0.5" title={done.outputPath}>
+        <div className="liberated-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ color: 'var(--ex-green2)', fontSize: 18 }}>✝</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: 'var(--ex-green2)' }}>{done.fileName}</div>
+              <div style={{ fontSize: 10, color: 'var(--ex-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={done.outputPath}>
                 {done.outputPath}
-              </p>
+              </div>
               {duration > 0 && (
-                <p className="text-xs text-slate-500 mt-0.5">
+                <div style={{ fontSize: 10, color: 'var(--ex-muted)', marginTop: 2 }}>
                   {done.format?.toUpperCase()} · {formatDuration(duration)}
-                </p>
+                </div>
               )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => window.api.shellOpenFile(done.outputPath)}
-              className="px-3 py-1.5 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm"
-            >
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="smol-btn" onClick={() => window.api.shellOpenFile(done.outputPath)}>
               Open file
             </button>
-            <button
-              onClick={() => window.api.shellOpenFolder(done.outputPath)}
-              className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
-            >
+            <button className="smol-btn" onClick={() => window.api.shellOpenFolder(done.outputPath)}>
               Open folder
             </button>
-            <button
-              onClick={resetForm}
-              className="px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 text-sm"
-            >
-              Convert another
+            <button className="smol-btn" onClick={resetForm}>
+              Exorcise another
             </button>
           </div>
         </div>
       )}
 
       {/* Error */}
-      {error && (
-        <div className="mb-4 bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <div className="error-card">{error}</div>}
 
-      {/* Manual activation bytes fallback */}
+      {/* Manual activation bytes */}
       {needsManualBytes && !converting && (
-        <div className="mb-4 bg-slate-800 border border-slate-600 rounded-lg p-4">
-          <p className="text-sm font-medium text-slate-200 mb-1">Enter activation bytes manually</p>
+        <div className="ex-panel">
+          <div className="panel-label">Inscribe Activation Bytes</div>
           {checksum && (
-            <p className="text-xs text-slate-500 font-mono mb-3">
-              File checksum: <span className="text-slate-400 select-all">{checksum}</span>
+            <p style={{ fontSize: 10, color: 'var(--ex-muted)', fontFamily: 'monospace', marginBottom: 8 }}>
+              Checksum: <span style={{ color: 'var(--ex-text)', userSelect: 'all' }}>{checksum}</span>
             </p>
           )}
-          <div className="flex gap-2">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               type="text"
               value={manualBytes}
               onChange={(e) => setManualBytes(e.target.value.toLowerCase())}
               placeholder="e.g. 1a2b3c4d"
               maxLength={8}
-              className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm font-mono w-36 focus:outline-none focus:border-brand-500 text-slate-200"
+              className="ex-input mono"
+              style={{ width: 140 }}
             />
-            <button
-              onClick={submitManualBytes}
-              className="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm"
-            >
-              Convert with this key
+            <button className="smol-btn" onClick={submitManualBytes}>
+              Inscribe & Exorcise
             </button>
           </div>
         </div>
       )}
 
-      {/* Convert button */}
+      {/* Exorcise button */}
       {!done && (
-        <div className="flex gap-3">
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14 }}>
           <button
+            className="exorcise-btn"
             onClick={() => startConvert()}
             disabled={!selectedFile || converting}
-            className="px-6 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {converting ? 'Converting…' : 'Convert'}
+            ✝ &nbsp; Exorcise &nbsp; ✝
           </button>
           {converting && (
             <button
+              className="smol-btn"
               onClick={async () => {
                 await window.api.convertCancel('')
-                setConverting(false)
-                setProgress(null)
-                setActiveStepLabel('')
+                setConverting(false); setProgress(null); setActiveStepLabel('')
               }}
-              className="px-4 py-2 rounded bg-slate-700 hover:bg-red-800 text-slate-300 text-sm transition-colors"
             >
               Cancel
             </button>
           )}
         </div>
       )}
+
+      <div className="ex-verse">"The power of open formats compels you."</div>
     </div>
   )
 }
 
-function Spinner({ className = '' }) {
+function Spinner() {
   return (
-    <svg className={`w-4 h-4 animate-spin ${className}`} viewBox="0 0 24 24" fill="none">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+    <svg style={{ width: 14, height: 14, flexShrink: 0 }} className="animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="var(--ex-gold)" strokeWidth="4" />
+      <path style={{ opacity: 0.75 }} fill="var(--ex-gold)" d="M4 12a8 8 0 018-8v8H4z" />
     </svg>
   )
 }

@@ -18,24 +18,20 @@ export default function FfmpegBanner({ onInstalled }) {
   }
 
   return (
-    <div className="bg-amber-900/40 border-b border-amber-700/50 px-4 py-2 flex items-center justify-between text-sm">
-      <div className="flex items-center gap-2">
-        <span className="text-amber-400">⚠</span>
-        <span className="text-amber-200">
-          ffmpeg not found.{' '}
+    <div className="ffmpeg-banner">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ color: 'var(--ex-gold)', fontSize: 14 }}>⚠</span>
+        <span>
+          ffmpeg not found —{' '}
           {process.platform === 'linux'
-            ? 'Install it automatically or run: sudo apt/dnf install ffmpeg'
-            : 'Download ffmpeg and set the path in Settings.'}
+            ? 'Install it below, or run: sudo apt/dnf install ffmpeg'
+            : 'Download ffmpeg and set the path in Relics.'}
         </span>
-        {error && <span className="text-red-400 ml-2">{error}</span>}
+        {error && <span style={{ color: 'var(--ex-red2)', marginLeft: 8 }}>{error}</span>}
       </div>
       {process.platform === 'linux' && (
-        <button
-          onClick={install}
-          disabled={installing}
-          className="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs disabled:opacity-50 shrink-0 ml-4"
-        >
-          {installing ? 'Installing…' : 'Install ffmpeg'}
+        <button className="smol-btn" onClick={install} disabled={installing}>
+          {installing ? 'Invoking…' : '✝ Invoke ffmpeg'}
         </button>
       )}
     </div>

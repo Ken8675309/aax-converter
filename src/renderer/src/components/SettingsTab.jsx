@@ -12,9 +12,7 @@ export default function SettingsTab() {
       window.api.settingsGetAll(),
       window.api.getInfo()
     ])
-    setTools(t)
-    setSettings(s)
-    setAppInfo(info)
+    setTools(t); setSettings(s); setAppInfo(info)
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
@@ -27,19 +25,22 @@ export default function SettingsTab() {
   }
 
   return (
-    <div className="p-6 max-w-2xl space-y-8">
-      <h2 className="text-lg font-semibold text-slate-200">Settings</h2>
+    <div style={{ padding: 16, maxWidth: 620 }}>
+
+      <div style={{ fontSize: 9, color: 'var(--ex-red2)', letterSpacing: 3, textTransform: 'uppercase', fontFamily: "'Special Elite', cursive", marginBottom: 4 }}>
+        Sacred Relics — Settings
+      </div>
 
       {/* Defaults */}
-      <section>
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">Defaults</h3>
-        <div className="grid grid-cols-2 gap-4">
+      <div className="ex-panel">
+        <div className="panel-label">Defaults</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Default Format</label>
+            <div style={{ fontSize: 9, color: 'var(--ex-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 5 }}>Default Format</div>
             <select
+              className="ex-select"
               value={settings.defaultFormat || 'm4b'}
               onChange={(e) => set('defaultFormat', e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
             >
               {['m4b', 'mp3', 'm4a', 'flac', 'ogg', 'wav', 'opus', 'aac'].map((f) => (
                 <option key={f} value={f}>{f.toUpperCase()}</option>
@@ -47,11 +48,11 @@ export default function SettingsTab() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Default Quality</label>
+            <div style={{ fontSize: 9, color: 'var(--ex-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 5 }}>Default Quality</div>
             <select
+              className="ex-select"
               value={settings.defaultQuality || '128k'}
               onChange={(e) => set('defaultQuality', e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
             >
               <option value="copy">Copy / Lossless</option>
               <option value="128k">128 kbps</option>
@@ -60,119 +61,96 @@ export default function SettingsTab() {
             </select>
           </div>
         </div>
-        <div className="mt-3">
-          <label className="block text-xs text-slate-400 mb-1">Default Output Folder</label>
-          <PathInput
-            value={settings.defaultOutputFolder || ''}
-            onChange={(v) => set('defaultOutputFolder', v)}
-            placeholder="Defaults to input_folder/converted/"
-            onBrowse={async () => {
-              const dir = await window.api.filesPickOutput()
-              if (dir) set('defaultOutputFolder', dir)
-            }}
-            saved={saved.defaultOutputFolder}
+        <div>
+          <div style={{ fontSize: 9, color: 'var(--ex-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 5 }}>
+            Default Output Folder
+            {saved.defaultOutputFolder && <span style={{ color: 'var(--ex-green2)', marginLeft: 8 }}>✓ Saved</span>}
+          </div>
+          <div className="output-row">
+            <input
+              type="text"
+              value={settings.defaultOutputFolder || ''}
+              onChange={(e) => set('defaultOutputFolder', e.target.value)}
+              placeholder="Defaults to input_folder/converted/"
+              className="ex-input"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="smol-btn"
+              onClick={async () => {
+                const dir = await window.api.filesPickOutput()
+                if (dir) set('defaultOutputFolder', dir)
+              }}
+            >
+              browse
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tools */}
+      <div className="ex-panel">
+        <div className="panel-label">Sacred Tools</div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+            <span style={{ fontSize: 9, color: 'var(--ex-muted)', letterSpacing: 2, textTransform: 'uppercase' }}>ffmpeg</span>
+            {tools.ffmpeg ? (
+              <span style={{ fontSize: 10, color: 'var(--ex-green2)' }}>✓ {tools.ffmpeg}</span>
+            ) : (
+              <span style={{ fontSize: 10, color: 'var(--ex-gold)' }}>Not detected</span>
+            )}
+            {saved.ffmpegPath && <span style={{ fontSize: 10, color: 'var(--ex-green2)' }}>✓ Saved</span>}
+          </div>
+          <input
+            type="text"
+            value={settings.ffmpegPath || ''}
+            onChange={(e) => set('ffmpegPath', e.target.value)}
+            onBlur={(e) => set('ffmpegPath', e.target.value)}
+            placeholder="Override path (optional)"
+            className="ex-input"
+            style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
           />
         </div>
-      </section>
-
-      {/* Tool paths */}
-      <section>
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">Tools</h3>
-        <div className="space-y-4">
-          <ToolPathRow
-            label="ffmpeg"
-            detected={tools.ffmpeg}
-            value={settings.ffmpegPath || ''}
-            onChange={(v) => set('ffmpegPath', v)}
-            saved={saved.ffmpegPath}
-          />
-
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <label className="text-xs text-slate-400">rcrack</label>
-              {tools.rcrack ? (
-                <span className="text-xs text-green-400">✓ {tools.rcrack}</span>
-              ) : (
-                <span className="text-xs text-red-400">Not found in resources/tables/</span>
-              )}
-            </div>
-            {tools.tablesDir && (
-              <p className="text-xs text-slate-600 font-mono">{tools.tablesDir}</p>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 9, color: 'var(--ex-muted)', letterSpacing: 2, textTransform: 'uppercase' }}>rcrack</span>
+            {tools.rcrack ? (
+              <span style={{ fontSize: 10, color: 'var(--ex-green2)' }}>✓ {tools.rcrack}</span>
+            ) : (
+              <span style={{ fontSize: 10, color: 'var(--ex-red2)' }}>Not found in resources/tables/</span>
             )}
           </div>
+          {tools.tablesDir && (
+            <p style={{ fontSize: 10, color: 'var(--ex-muted)', fontFamily: 'monospace' }}>{tools.tablesDir}</p>
+          )}
         </div>
-        <button
-          onClick={refresh}
-          className="mt-3 text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-slate-800"
-        >
+        <button className="smol-btn" style={{ marginTop: 10 }} onClick={refresh}>
           Re-detect tools
         </button>
-      </section>
-
-      {/* App info */}
-      {appInfo && (
-        <section>
-          <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">About</h3>
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 text-sm space-y-1">
-            <Row label="Version" value={`v${appInfo.version}`} />
-            <Row label="Platform" value={appInfo.platform} />
-            <Row label="Data folder" value={appInfo.userData} mono />
-          </div>
-        </section>
-      )}
-    </div>
-  )
-}
-
-function Row({ label, value, mono }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-slate-500">{label}</span>
-      <span className={`text-slate-300 ${mono ? 'font-mono text-xs' : ''} truncate ml-4 max-w-[300px]`}>
-        {value}
-      </span>
-    </div>
-  )
-}
-
-function ToolPathRow({ label, detected, value, onChange, saved }) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <label className="text-xs text-slate-400">{label}</label>
-        {detected ? (
-          <span className="text-xs text-green-400">✓ {detected}</span>
-        ) : (
-          <span className="text-xs text-amber-400">Not detected</span>
-        )}
-        {saved && <span className="text-xs text-green-400">Saved</span>}
       </div>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => onChange(e.target.value)}
-        placeholder="Override path (optional)"
-        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm font-mono text-slate-300 focus:outline-none focus:border-brand-500"
-      />
-    </div>
-  )
-}
 
-function PathInput({ value, onChange, placeholder, onBrowse, saved }) {
-  return (
-    <div className="flex gap-2">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
-      />
-      <button onClick={onBrowse} className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm text-slate-300">
-        Browse
-      </button>
-      {saved && <span className="text-xs text-green-400 self-center">Saved</span>}
+      {/* About */}
+      {appInfo && (
+        <div className="ex-panel">
+          <div className="panel-label">About The AAXorcist</div>
+          <div className="tog-row">
+            <span>Version</span>
+            <span style={{ color: 'var(--ex-gold)', fontFamily: 'monospace' }}>v{appInfo.version}</span>
+          </div>
+          <div className="tog-row">
+            <span>Platform</span>
+            <span style={{ color: 'var(--ex-gold)' }}>{appInfo.platform}</span>
+          </div>
+          <div className="tog-row">
+            <span>Data folder</span>
+            <span style={{ color: 'var(--ex-muted)', fontFamily: 'monospace', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300 }}>
+              {appInfo.userData}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="ex-verse">"By the power of open source, I cast thee out."</div>
     </div>
   )
 }

@@ -7,12 +7,14 @@ function FileNode({ node, selectedFile, onSelect, depth = 0 }) {
     return (
       <div>
         <div
-          className="flex items-center gap-1 px-2 py-0.5 hover:bg-slate-700/50 cursor-pointer text-sm"
-          style={{ paddingLeft: `${8 + depth * 12}px` }}
+          className="file-item"
+          style={{ paddingLeft: `${12 + depth * 12}px` }}
           onClick={() => setExpanded((e) => !e)}
         >
-          <span className="text-slate-500 text-xs w-3">{expanded ? '▾' : '▸'}</span>
-          <span className={`${node.isConverted ? 'text-green-400' : 'text-slate-400'} truncate`}>
+          <span style={{ fontSize: 10, color: 'var(--ex-gold2)', width: 12, flexShrink: 0 }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span style={{ color: node.isConverted ? 'var(--ex-green2)' : 'var(--ex-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {node.name}
           </span>
         </div>
@@ -26,15 +28,13 @@ function FileNode({ node, selectedFile, onSelect, depth = 0 }) {
   const isSelected = selectedFile === node.path
   return (
     <div
-      className={`flex items-center gap-2 px-2 py-0.5 cursor-pointer text-sm truncate ${
-        isSelected ? 'bg-brand-600/30 text-brand-300' : 'hover:bg-slate-700/50 text-slate-300'
-      }`}
-      style={{ paddingLeft: `${8 + depth * 12}px` }}
+      className={`file-item${isSelected ? ' active' : ''}`}
+      style={{ paddingLeft: `${12 + depth * 12}px` }}
       onClick={() => onSelect(node.path)}
       title={node.path}
     >
-      <span className="text-slate-500 shrink-0">🔒</span>
-      <span className="truncate">{node.name}</span>
+      <span style={{ flexShrink: 0 }}>🔒</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</span>
     </div>
   )
 }
@@ -42,6 +42,17 @@ function FileNode({ node, selectedFile, onSelect, depth = 0 }) {
 export default function FileBrowser({ selectedFile, onSelect }) {
   const [rootDir, setRootDir] = useState('')
   const [tree, setTree] = useState([])
+  const [keyCount, setKeyCount] = useState(0)
+  const [exorcisedCount, setExorcisedCount] = useState(0)
+
+  const countAax = (nodes) => {
+    let c = 0
+    for (const n of nodes) {
+      if (n.type === 'dir') c += countAax(n.children || [])
+      else c++
+    }
+    return c
+  }
 
   const refresh = useCallback(async (dir) => {
     if (!dir) return
@@ -53,6 +64,13 @@ export default function FileBrowser({ selectedFile, onSelect }) {
     refresh(rootDir)
   }, [rootDir, refresh])
 
+  useEffect(() => {
+    Promise.all([window.api.keysList(), window.api.historyList()]).then(([keys, hist]) => {
+      setKeyCount(keys.length)
+      setExorcisedCount(hist.filter((h) => h.status === 'success').length)
+    }).catch(() => {})
+  }, [])
+
   const pickFolder = async () => {
     const dir = await window.api.filesPickFolder()
     if (dir) { setRootDir(dir); refresh(dir) }
@@ -63,34 +81,60 @@ export default function FileBrowser({ selectedFile, onSelect }) {
     if (file) onSelect(file)
   }
 
+  const possessedCount = countAax(tree)
+
   return (
-    <aside className="w-56 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
-      <div className="px-2 py-2 border-b border-slate-800 flex flex-col gap-1">
-        <button
-          onClick={pickFolder}
-          className="w-full text-left text-xs px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 truncate"
-          title={rootDir || 'Choose folder'}
-        >
-          {rootDir ? `📁 ${rootDir.split('/').pop() || rootDir}` : '📁 Choose folder…'}
-        </button>
-        <button
-          onClick={pickFile}
-          className="w-full text-left text-xs px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200"
-        >
-          Browse for .aax file…
-        </button>
+    <aside className="ex-sidebar">
+      <div style={{ paddingTop: 4 }}>
+        <div className="sidebar-title">📁 Possessed Files</div>
+
+        {rootDir && (
+          <div
+            className="file-item"
+            title={rootDir}
+            style={{ fontSize: 10, borderBottom: '1px solid rgba(61,46,0,0.3)', marginBottom: 4, paddingBottom: 6 }}
+            onClick={pickFolder}
+          >
+            <span style={{ flexShrink: 0 }}>📂</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{rootDir.split('/').pop() || rootDir}</span>
+          </div>
+        )}
+
+        <div style={{ overflowY: 'auto', maxHeight: 280 }}>
+          {tree.length === 0 && rootDir && (
+            <p style={{ fontSize: 10, color: 'var(--ex-muted)', padding: '8px 12px', fontStyle: 'italic' }}>
+              No .aax files found
+            </p>
+          )}
+          {tree.length === 0 && !rootDir && (
+            <p style={{ fontSize: 10, color: 'var(--ex-muted)', padding: '8px 12px', fontStyle: 'italic' }}>
+              Summon a folder to begin
+            </p>
+          )}
+          {tree.map((node, i) => (
+            <FileNode key={i} node={node} selectedFile={selectedFile} onSelect={onSelect} />
+          ))}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1">
-        {tree.length === 0 && rootDir && (
-          <p className="text-xs text-slate-600 px-3 py-4 text-center">No .aax files found</p>
-        )}
-        {tree.length === 0 && !rootDir && (
-          <p className="text-xs text-slate-600 px-3 py-4 text-center">Select a folder to browse files</p>
-        )}
-        {tree.map((node, i) => (
-          <FileNode key={i} node={node} selectedFile={selectedFile} onSelect={onSelect} />
-        ))}
+      <button className="browse-btn" onClick={pickFolder}>
+        Choose Folder
+      </button>
+      <button className="browse-btn" style={{ marginTop: 0 }} onClick={pickFile}>
+        Summon File
+      </button>
+
+      <div className="soul-stats">
+        <div className="sidebar-title" style={{ padding: '0 0 6px', border: 'none' }}>Soul Ledger</div>
+        <div className="soul-row">
+          <span>Keys stored</span><span className="soul-val">{keyCount}</span>
+        </div>
+        <div className="soul-row">
+          <span>Exorcised</span><span className="soul-val">{exorcisedCount}</span>
+        </div>
+        <div className="soul-row">
+          <span>Possessed</span><span className="soul-val">{possessedCount}</span>
+        </div>
       </div>
     </aside>
   )
